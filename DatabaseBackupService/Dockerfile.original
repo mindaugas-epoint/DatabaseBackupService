@@ -1,0 +1,21 @@
+#See https://aka.ms/containerfastmode to understand how Visual Studio uses this Dockerfile to build your images for faster debugging.
+
+FROM mcr.microsoft.com/dotnet/runtime-deps/arm64v8/buildpack-deps:jammy-curl AS base
+WORKDIR /app
+
+FROM mcr.microsoft.com/dotnet/aspnet/6.0.10-jammy-arm64v8 AS build
+WORKDIR /src
+COPY ["DatabaseBackupService.csproj", "DatabaseBackupService/"]
+RUN dotnet restore "DatabaseBackupService/DatabaseBackupService.csproj"
+
+WORKDIR "/src/DatabaseBackupService"
+COPY . .
+RUN dotnet build "DatabaseBackupService.csproj" -c Release -o /app/build
+
+FROM build AS publish
+RUN dotnet publish "DatabaseBackupService.csproj" -c Release -o /app/publish /p:UseAppHost=false
+
+FROM base AS final
+WORKDIR /app
+COPY --from=publish /app/publish .
+ENTRYPOINT ["dotnet", "DatabaseBackupService.dll"]
