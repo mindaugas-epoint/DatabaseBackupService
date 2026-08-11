@@ -1,0 +1,63 @@
+version: '3.8'
+
+services:
+  database-backup-service:
+    build:
+      context: .
+      dockerfile: DatabaseBackupService.Linux/Dockerfile
+    container_name: database-backup-service
+    restart: unless-stopped
+
+    # Environment variables - configure these for your database
+    environment:
+      # Database Configuration (REQUIRED)
+      - DB_TYPE=mssql              # Database type: 'mssql' or 'mysql'
+      - DB_SERVER=your-db-server   # Database server hostname or IP
+      - DB_PORT=1433               # Database port (1433 for MSSQL, 3306 for MySQL)
+      - DB_NAME=YourDatabase       # Database name to backup
+      - DB_USER=sa                 # Database username
+      - DB_PASSWORD=YourPassword   # Database password
+
+      # Backup Schedule Configuration
+      - BACKUP_SCHEDULE=02:00:00   # Daily backup time (HH:mm:ss format)
+      - BACKUP_FOLDER_PATH=/backups # Path inside container for local backups
+
+      # Time Window Configuration (optional)
+      - USE_TIME_WINDOW=false      # Set to 'true' to use time window instead of daily schedule
+      - BACKUP_START_TIME=08:00:00 # Time window start time
+      - BACKUP_END_TIME=18:00:00   # Time window end time
+      - BACKUP_INTERVAL=04:00:00   # Interval between backups in time window
+
+      # Azure Backup Configuration (optional)
+      - ENABLE_AZURE_BACKUP=false
+      - USE_AZURE_SAS_TOKEN=false
+      - AZURE_STORAGE_CONNECTION_STRING=
+      - AZURE_CONTAINER_NAME=
+      - AZURE_BLOB_PREFIX=
+      - AZURE_STORAGE_ACCOUNT_NAME=
+      - AZURE_SAS_TOKEN=
+
+      # Email Notification Configuration (optional)
+      - EMAIL_SENDER_ADDRESS=
+      - EMAIL_SENDER_PASSWORD=
+      - EMAIL_RECIPIENT_ADDRESS=
+
+      # Retention Configuration
+      - BACKUP_RETENTION_DAYS=30   # Number of days to keep backups
+      - MINIMUM_BACKUP_FILES=2     # Minimum number of backup files to retain
+
+    # Volume for persistent backup storage
+    volumes:
+      - ./backups:/backups
+
+    # Network mode - use 'host' if connecting to database on localhost
+    # network_mode: host
+
+    # Or define custom networks
+    # networks:
+    #   - db-network
+
+# Optional: Define networks
+# networks:
+#   db-network:
+#     driver: bridge

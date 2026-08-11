@@ -1,6 +1,6 @@
 using DatabaseBackup;
+using DatabaseBackupService.EmailService;
 using Logger;
-using SendEmail;
 using System.Reflection;
 
 namespace DatabaseBackupService
@@ -9,29 +9,48 @@ namespace DatabaseBackupService
     {
         public static void Main(string[] args)
         {
-            string connectionString;
+            var registryConfigReader = new RegistryConfigReader();
+            var backupConfig = registryConfigReader.LoadConfig();
+
+            if (string.IsNullOrEmpty(backupConfig.ServerName))
+            {
+                Console.WriteLine("No configuration found in registry. Please run the Configuration UI to set up the backup service.");
+                return;
+            }
+
+            string connectionString = backupConfig.GetConnectionString();
+            bool windowsOS = Environment.OSVersion.Platform == PlatformID.Win32NT;
+
             IConfiguration config = new ConfigurationBuilder()
                     .SetBasePath(Path.GetDirectoryName(Assembly.GetEntryAssembly().Location))
-                    .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
+                    .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
                     .Build();
-
-            DBConfig dbConfig = config.GetSection("DbConfig").Get<DBConfig>();
-            connectionString = dbConfig.GetConnectionString();
 
             IHost host = Host.CreateDefaultBuilder(args)
                 .ConfigureServices(services =>
                 {
-                    if (dbConfig.SqlServerType == "mysql")
+                    services.AddSingleton(backupConfig);
+
+                    if (backupConfig.DatabaseType == "mysql")
                     {
                         services.AddSingleton<IDbBackup>(sp => new MySqlDbBackup(connectionString));
                     }
                     else 
                     {
-                        services.AddSingleton<IDbBackup>(sp => new MsSqlDbBackup(connectionString, dbConfig.WindowsOS));
+                        services.AddSingleton<IDbBackup>(sp => new MsSqlDbBackup(connectionString, windowsOS));
                     }
-                    services.AddSingleton<ISendEmail, SendGridEmail>();
+
+                    var emailConfig = new EmailConfig
+                    {
+                        SenderEmail = backupConfig.EmailSenderAddress,
+                        SenderPassword = backupConfig.EmailSenderPassword,
+                        RecipientEmail = backupConfig.EmailRecipientAddress,
+                        RecipientName = backupConfig.EmailRecipientAddress
+                    };
+                    services.AddSingleton(emailConfig);
+                    services.AddSingleton<IEmailService, GmailEmailService>();
+
                     services.AddSingleton<Logger.ILogger, SeriLog>();
-                    services.Configure<DbBackupWorker>(config);
                     services.AddHostedService<DbBackupWorker>();
                 })
                 .Build();

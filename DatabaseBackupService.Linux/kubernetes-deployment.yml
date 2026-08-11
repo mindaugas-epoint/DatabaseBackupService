@@ -1,0 +1,200 @@
+---
+# Namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: database-backup
+
+---
+# ConfigMap for non-sensitive configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backup-config
+  namespace: database-backup
+data:
+  DB_TYPE: "mssql"
+  DB_PORT: "1433"
+  BACKUP_SCHEDULE: "02:00:00"
+  BACKUP_FOLDER_PATH: "/backups"
+  USE_TIME_WINDOW: "false"
+  BACKUP_START_TIME: "08:00:00"
+  BACKUP_END_TIME: "18:00:00"
+  BACKUP_INTERVAL: "04:00:00"
+  ENABLE_AZURE_BACKUP: "false"
+  USE_AZURE_SAS_TOKEN: "false"
+  BACKUP_RETENTION_DAYS: "30"
+  MINIMUM_BACKUP_FILES: "2"
+
+---
+# Secret for sensitive data
+apiVersion: v1
+kind: Secret
+metadata:
+  name: backup-secrets
+  namespace: database-backup
+type: Opaque
+stringData:
+  DB_SERVER: "your-database-server"
+  DB_NAME: "YourDatabase"
+  DB_USER: "your-username"
+  DB_PASSWORD: "your-password"
+  AZURE_STORAGE_CONNECTION_STRING: ""
+  AZURE_CONTAINER_NAME: ""
+  AZURE_BLOB_PREFIX: ""
+  AZURE_STORAGE_ACCOUNT_NAME: ""
+  AZURE_SAS_TOKEN: ""
+  EMAIL_SENDER_ADDRESS: ""
+  EMAIL_SENDER_PASSWORD: ""
+  EMAIL_RECIPIENT_ADDRESS: ""
+
+---
+# PersistentVolumeClaim for backup storage
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: backup-storage
+  namespace: database-backup
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 50Gi
+  # storageClassName: standard  # Adjust based on your cluster
+
+---
+# Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: database-backup-service
+  namespace: database-backup
+  labels:
+    app: database-backup-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: database-backup-service
+  template:
+    metadata:
+      labels:
+        app: database-backup-service
+    spec:
+      containers:
+      - name: backup-service
+        image: database-backup-service:latest  # Replace with your image
+        imagePullPolicy: Always
+
+        # Environment variables from ConfigMap
+        envFrom:
+        - configMapRef:
+            name: backup-config
+
+        # Environment variables from Secret
+        env:
+        - name: DB_SERVER
+          valueFrom:
+            secretKeyRef:
+              name: backup-secrets
+              key: DB_SERVER
+        - name: DB_NAME
+          valueFrom:
+            secretKeyRef:
+              name: backup-secrets
+              key: DB_NAME
+        - name: DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: backup-secrets
+              key: DB_USER
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: backup-secrets
+              key: DB_PASSWORD
+        - name: AZURE_STORAGE_CONNECTION_STRING
+          valueFrom:
+            secretKeyRef:
+              name: backup-secrets
+              key: AZURE_STORAGE_CONNECTION_STRING
+              optional: true
+        - name: AZURE_CONTAINER_NAME
+          valueFrom:
+            secretKeyRef:
+              name: backup-secrets
+              key: AZURE_CONTAINER_NAME
+              optional: true
+        - name: EMAIL_SENDER_ADDRESS
+          valueFrom:
+            secretKeyRef:
+              name: backup-secrets
+              key: EMAIL_SENDER_ADDRESS
+              optional: true
+        - name: EMAIL_SENDER_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: backup-secrets
+              key: EMAIL_SENDER_PASSWORD
+              optional: true
+        - name: EMAIL_RECIPIENT_ADDRESS
+          valueFrom:
+            secretKeyRef:
+              name: backup-secrets
+              key: EMAIL_RECIPIENT_ADDRESS
+              optional: true
+
+        # Volume mounts
+        volumeMounts:
+        - name: backup-storage
+          mountPath: /backups
+
+        # Resource limits
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+
+        # Security context
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+
+      # Volumes
+      volumes:
+      - name: backup-storage
+        persistentVolumeClaim:
+          claimName: backup-storage
+
+      # Restart policy
+      restartPolicy: Always
+
+---
+# Optional: CronJob for manual backup trigger
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: database-backup-trigger
+  namespace: database-backup
+spec:
+  schedule: "0 2 * * *"  # Daily at 2 AM
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: backup-trigger
+            image: curlimages/curl:latest
+            command:
+            - /bin/sh
+            - -c
+            - |
+              echo "Backup trigger executed at $(date)"
+              # Add any additional trigger logic here
+          restartPolicy: OnFailure

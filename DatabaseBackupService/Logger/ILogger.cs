@@ -6,8 +6,15 @@ using System.Threading.Tasks;
 
 namespace Logger
 {
+    public enum LogLevel
+    {
+        Information,
+        Warning,
+        Error
+    }
+
     public interface ILogger
     {
-        void WriteLog(string logType, string logText);
+        void WriteLog(LogLevel logLevel, string logText);
     }
 }
